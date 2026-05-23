@@ -1,0 +1,230 @@
+{
+  "version": "1.0.0",
+  "updatedAt": "2026-05-21",
+  "templates": [
+    {
+      "id": "1",
+      "name": "FISERVPBI",
+      "description": "FiservPbiTemplate",
+      "referenceUrls": [
+        "https://web2.secureinternetbank.com/pbi_pbi1151/login/231374916",
+        "https://web2.secureinternetbank.com/PBI_PBI1151/login/231374916"
+      ],
+      "urlPatterns": [
+        {
+          "id": "up-001-1",
+          "pattern": "/pbi_pbi",
+          "type": "path",
+          "weight": 20
+        },
+        {
+          "id": "up-001-2",
+          "pattern": "/PBI_PBI",
+          "type": "path",
+          "weight": 20
+        },
+        {
+          "id": "up-001-3",
+          "pattern": "secureinternetbank.com",
+          "type": "hostname",
+          "weight": 40
+        }
+      ],
+      "xpaths": [
+        {
+          "id": "xp-001-1",
+          "name": "Username Input",
+          "value": "//form//input[@id='username']",
+          "weight": 30,
+          "required": true,
+          "description": "Input field for username — must have id='username'"
+        },
+        {
+          "id": "xp-001-2",
+          "name": "Password Input",
+          "value": "//form//input[@id='password']",
+          "weight": 30,
+          "required": true,
+          "description": "Input field for password — must have id='password'"
+        },
+        {
+          "id": "xp-001-3",
+          "name": "Submit Button",
+          "value": "//form//button[@type='submit']",
+          "weight": 20,
+          "required": true,
+          "description": "Form submission button"
+        }
+      ],
+      "cssIndicators": [],
+      "semanticKeywords": ["secureinternetbank", "pbi", "online banking"],
+      "visualFingerprints": [],
+      "domFingerprints": [],
+      "scoringWeights": {
+        "xpathValidation": 50,
+        "urlSimilarity": 50
+      },
+      "criticalXpaths": ["xp-001-1", "xp-001-2"],
+      "minimumRequiredMatches": 2,
+      "structuralRequirements": {
+        "hasPasswordInput": true,
+        "hasLoginForm": true
+      },
+      "tags": ["login", "authentication"],
+      "isActive": true,
+      "createdAt": "2026-01-01",
+      "updatedAt": "2026-05-20"
+    },
+    {
+      "id": "2",
+      "name": "DBANK",
+      "description": "DbankTemplate",
+      "referenceUrls": [
+        "https://onlinebanking.wcu.com/dbank/live/app/login/consumer"
+      ],
+      "urlPatterns": [
+        {
+          "id": "up-002-1",
+          "pattern": "/dbank/live/app/login/consumer",
+          "type": "path",
+          "weight": 40
+        },
+        {
+          "id": "up-002-2",
+          "pattern": "/dbank/",
+          "type": "path",
+          "weight": 40
+        },
+        {
+          "id": "up-002-3",
+          "pattern": "onlinebanking.wcu.com",
+          "type": "hostname",
+          "weight": 20
+        }
+      ],
+      "xpaths": [
+        {
+          "id": "xp-002-1",
+          "name": "User Input",
+          "value": "//form[contains(@id,'login')]//input[contains(@id,'username')] | //form[contains(@id,'login')]//input[contains(@id,'userid')]",
+          "weight": 30,
+          "required": true,
+          "description": "Username or userID inside a form with id containing 'login'"
+        },
+        {
+          "id": "xp-002-2",
+          "name": "Password Input",
+          "value": "//form[contains(@id,'login')]//input[contains(@id,'password')]",
+          "weight": 30,
+          "required": true,
+          "description": "Password input inside a form with id containing 'login'"
+        },
+        {
+          "id": "xp-002-3",
+          "name": "Login Button",
+          "value": "//form[contains(@id,'login')]//button[@type='submit'] | //form[contains(@id,'login')]//input[@type='submit']",
+          "weight": 20,
+          "required": true,
+          "description": "Submit button inside the login form"
+        }
+      ],
+      "cssIndicators": [],
+      "semanticKeywords": [
+        "dbank",
+        "wcu",
+        "consumer banking",
+        "online banking"
+      ],
+      "visualFingerprints": [],
+      "domFingerprints": [],
+      "scoringWeights": {
+        "xpathValidation": 50,
+        "urlSimilarity": 50
+      },
+      "criticalXpaths": ["xp-002-1", "xp-002-2"],
+      "minimumRequiredMatches": 2,
+      "structuralRequirements": {
+        "hasPasswordInput": true,
+        "hasLoginForm": true
+      },
+      "tags": ["login", "authentication"],
+      "isActive": true,
+      "createdAt": "2026-05-13",
+      "updatedAt": "2026-05-20"
+    },
+    {
+      "id": "3",
+      "name": "FISERVSHADOW",
+      "description": "FiservShadowTemplate — uses Shadow DOM web components (bannoweb-login, jha-button)",
+      "referenceUrls": ["https://my.fcbanking.com/login"],
+      "urlPatterns": [
+        {
+          "id": "up-003-1",
+          "pattern": "/login",
+          "type": "path",
+          "weight": 40
+        },
+        {
+          "id": "up-003-2",
+          "pattern": "my.",
+          "type": "hostname",
+          "weight": 60
+        }
+      ],
+      "xpaths": [
+        {
+          "id": "xp-003-1",
+          "name": "Username Input (Shadow)",
+          "value": "//bannoweb-login//form//input[@title[contains(.,'username')]]",
+          "weight": 45,
+          "required": true,
+          "description": "Username input inside bannoweb-login shadow component"
+        },
+        {
+          "id": "xp-003-3",
+          "name": "Submit Button (Shadow)",
+          "value": "//bannoweb-login//form//jha-button[@type='submit']",
+          "weight": 45,
+          "required": true,
+          "description": "Custom jha-button submit inside shadow component"
+        },
+        {
+          "id": "xp-003-4",
+          "name": "Shadow Host Element",
+          "value": "//bannoweb-login",
+          "weight": 40,
+          "required": true,
+          "description": "Presence of the bannoweb-login custom element — uniquely identifies this template"
+        }
+      ],
+      "cssIndicators": [],
+      "semanticKeywords": [
+        "fcbanking",
+        "bannoweb",
+        "fiserv",
+        "jha",
+        "online banking"
+      ],
+      "visualFingerprints": [],
+      "domFingerprints": [
+        {
+          "id": "df-003-1",
+          "selector": "bannoweb-login",
+          "type": "tag",
+          "weight": 60
+        }
+      ],
+      "scoringWeights": {
+        "domStructure": 30,
+        "xpathValidation": 50,
+        "urlSimilarity": 20
+      },
+      "criticalXpaths": ["xp-003-1", "xp-003-3"],
+      "minimumRequiredMatches": 2,
+      "tags": ["login", "authentication", "shadow-dom"],
+      "isActive": true,
+      "createdAt": "2026-05-13",
+      "updatedAt": "2026-05-20"
+    }
+  ]
+}
