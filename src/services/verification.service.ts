@@ -35,8 +35,8 @@ class VerificationService {
       }
       if (snapshot.captureMethod === "static-fetch" && snapshot.spaDetected) {
         warnings.push(
-          "Playwright captured a static response — XPath accuracy may be reduced. " +
-            "Upload an MHTML file saved from Chrome for full accuracy.",
+          "Page captured as static HTML — JavaScript was not executed, so XPath results may be incomplete. " +
+            "Upload an MHTML file saved from Chrome (Ctrl+S → Webpage, MHTML) for full accuracy.",
         );
       }
     }

@@ -1,8 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Playwright uses native binaries — must not be bundled by webpack/turbopack.
-  serverExternalPackages: ["playwright", "playwright-core"],
+  // Browser automation packages use native binaries — must not be bundled.
+  serverExternalPackages: ["playwright", "playwright-core", "@sparticuz/chromium"],
 };
 
 export default nextConfig;

@@ -13,12 +13,11 @@
 //   is injected by a JavaScript framework (React/Angular/Vue), it simply does not
 //   exist in the static HTML. Playwright solves this by running a real browser.
 //
-// Setup (one-time):
-//   npm install playwright
-//   npx playwright install chromium
-//
-// Note: Playwright browser binaries are ~150MB. Set PLAYWRIGHT_BROWSERS_PATH
-// in .env.local to control where they are stored.
+// Browser selection:
+//   Local dev:  full `playwright` package + locally-installed Chromium
+//               (npx playwright install chromium)
+//   Vercel/AWS: `@sparticuz/chromium` + `playwright-core`
+//               serverless-optimised ~40MB Chromium binary, no extra install needed
 
 import { NextRequest, NextResponse } from "next/server";
 import type { ApiResponse, SnapshotResult } from "@/types";
@@ -87,25 +86,56 @@ async function captureWithPlaywright(
   url: string,
   timeout: number,
 ): Promise<PlaywrightOutcome> {
-  let chromium: (typeof import("playwright"))["chromium"];
+  // On Vercel/Lambda use @sparticuz/chromium (serverless-optimised ~40MB binary).
+  // Locally use the full playwright package with its own Chromium installation.
+  const isServerless = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
 
-  try {
-    ({ chromium } = await import("playwright"));
-  } catch {
-    // Playwright not installed — expected in environments without it
-    return { type: "unavailable" };
+  let browser: import("playwright-core").Browser;
+
+  if (isServerless) {
+    let chromiumLib: typeof import("@sparticuz/chromium");
+    let playwrightCore: typeof import("playwright-core");
+    try {
+      [chromiumLib, playwrightCore] = await Promise.all([
+        import("@sparticuz/chromium"),
+        import("playwright-core"),
+      ]);
+    } catch {
+      return { type: "unavailable" };
+    }
+    try {
+      browser = await playwrightCore.chromium.launch({
+        args: chromiumLib.default.args,
+        executablePath: await chromiumLib.default.executablePath(),
+        headless: true,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { type: "error", error: msg };
+    }
+  } else {
+    let playwrightChromium: (typeof import("playwright"))["chromium"];
+    try {
+      ({ chromium: playwrightChromium } = await import("playwright"));
+    } catch {
+      // playwright not installed locally — expected in some environments
+      return { type: "unavailable" };
+    }
+    try {
+      browser = await playwrightChromium.launch({
+        headless: true,
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-blink-features=AutomationControlled",
+        ],
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { type: "error", error: msg };
+    }
   }
-
-  const browser = await chromium.launch({
-    headless: true,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      // Disable automation flags that trigger bot detection
-      "--disable-blink-features=AutomationControlled",
-    ],
-  });
 
   try {
     const context = await browser.newContext({
@@ -276,7 +306,7 @@ async function captureWithStaticFetch(
           spaWarning:
             `This appears to be a JavaScript-rendered page (${spa.indicators[0]}). ` +
             `XPath results from static HTML may be incomplete. ` +
-            `Install Playwright (npx playwright install chromium) or upload an MHTML file for accurate analysis.`,
+            `For accurate analysis, upload an MHTML file saved from Chrome (Ctrl+S → Webpage, MHTML).`,
         } as SnapshotResult & { spaWarning: string },
       });
     }
@@ -294,12 +324,12 @@ async function captureWithStaticFetch(
 
     const friendly = isTimeout
       ? `Request timed out. The site may block automated access. ` +
-        `Install Playwright or upload an MHTML snapshot.`
+        `Upload an MHTML snapshot for reliable analysis.`
       : isDns
         ? `Could not resolve hostname — check the URL.`
         : `Fetch failed: ${msg}. ` +
-          `For JavaScript-rendered banking portals, install Playwright ` +
-          `(npx playwright install chromium) or save the page as MHTML from Chrome.`;
+          `For JavaScript-rendered banking portals, save the page as MHTML from Chrome ` +
+          `(Ctrl+S → Webpage, MHTML) and upload it.`;
 
     return NextResponse.json<ApiResponse<never>>(
       { success: false, error: friendly },
