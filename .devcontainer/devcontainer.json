@@ -1,0 +1,51 @@
+{
+  "name": "Bank Recognize",
+
+  // Use the same Playwright base image as production so the dev environment
+  // is byte-for-byte identical with what runs on Railway/VPS.
+  "image": "mcr.microsoft.com/playwright:v1.55.0-noble",
+
+  // Install Node.js tools available in the dev container terminal.
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "20" },
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+
+  // Run after the container is created: install project dependencies.
+  "postCreateCommand": "npm ci",
+
+  // Run after postCreate: start the dev server in the background.
+  "postStartCommand": "npm run dev &",
+
+  "containerEnv": {
+    "PLAYWRIGHT_BROWSERS_PATH": "/ms-playwright",
+    "NODE_ENV": "development",
+    "NEXT_TELEMETRY_DISABLED": "1"
+  },
+
+  // Automatically forward and open the Next.js dev server.
+  "portsAttributes": {
+    "3000": {
+      "label": "Next.js Dev Server",
+      "onAutoForward": "openPreview"
+    }
+  },
+  "forwardPorts": [3000],
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "bradlc.vscode-tailwindcss",
+        "ms-playwright.playwright",
+        "prisma.prisma",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "typescript.tsdk": "node_modules/typescript/lib",
+        "typescript.preferences.importModuleSpecifier": "non-relative"
+      }
+    }
+  }
+}

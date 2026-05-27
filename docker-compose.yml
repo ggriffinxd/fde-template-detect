@@ -1,0 +1,58 @@
+services:
+
+  # ─── Development: hot-reload with source mounted ────────────────────────────
+  # Usage: docker compose up dev
+  # The source tree is mounted as a volume so edits are reflected immediately
+  # without rebuilding the image. The playwright base image provides Chromium.
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: deps            # stop at the deps stage — no need to build
+    image: bank-recognize:dev
+    command: npm run dev
+    volumes:
+      - .:/app                 # mount source for hot-reload
+      - /app/node_modules      # isolate container node_modules from host
+      - /app/.next             # isolate build cache from host
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      NEXT_TELEMETRY_DISABLED: "1"
+    env_file:
+      - path: .env.local
+        required: false        # skip if file does not exist
+    # Give Chromium more shared memory — the default 64 MB is too small for
+    # some pages and causes random renderer crashes.
+    shm_size: "256mb"
+    restart: unless-stopped
+
+  # ─── Production: standalone build ───────────────────────────────────────────
+  # Usage: docker compose up app  (add --build to force image rebuild)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    image: bank-recognize:latest
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      NEXT_TELEMETRY_DISABLED: "1"
+    env_file:
+      - path: .env.local
+        required: false
+    shm_size: "256mb"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 60s

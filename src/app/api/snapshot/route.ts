@@ -1,23 +1,23 @@
 // Snapshot API — captures the rendered DOM of a URL for template analysis.
 //
-// Strategy (in order):
-//   1. Playwright (Chromium, headless) — executes JavaScript, waits for DOM stability,
-//      gives the same DOM you'd see in DevTools. This is the only reliable method
-//      for SPAs and JavaScript-rendered banking portals.
-//   2. Static fetch fallback — returns the raw server response (pre-JS). Works for
-//      server-rendered pages but will fail XPath validation on any SPA.
+// Browser selection strategy:
 //
-// Why XPaths fail with static fetch but work in DevTools:
-//   DevTools queries the LIVE rendered DOM (post-JS). Static fetch captures the
-//   HTTP response body — before any JavaScript has executed. If the login form
-//   is injected by a JavaScript framework (React/Angular/Vue), it simply does not
-//   exist in the static HTML. Playwright solves this by running a real browser.
+//   ┌─────────────────┬────────────────────────────────────────────────────┐
+//   │ Environment     │ Strategy                                           │
+//   ├─────────────────┼────────────────────────────────────────────────────┤
+//   │ Docker/VPS/     │ Full `playwright` package.                         │
+//   │ Codespaces      │ Chromium is pre-installed at PLAYWRIGHT_BROWSERS_  │
+//   │ (default)       │ PATH=/ms-playwright inside the Playwright image.   │
+//   ├─────────────────┼────────────────────────────────────────────────────┤
+//   │ Vercel /        │ `@sparticuz/chromium` + `playwright-core`.         │
+//   │ AWS Lambda      │ Serverless-optimised ~40 MB binary; no extra       │
+//   │                 │ install needed.                                    │
+//   └─────────────────┴────────────────────────────────────────────────────┘
 //
-// Browser selection:
-//   Local dev:  full `playwright` package + locally-installed Chromium
-//               (npx playwright install chromium)
-//   Vercel/AWS: `@sparticuz/chromium` + `playwright-core`
-//               serverless-optimised ~40MB Chromium binary, no extra install needed
+// Fallback: if Playwright is unavailable OR fails, the route falls back to a
+// server-side static fetch (no CORS).  Static HTML lacks JS-rendered content,
+// so XPath validation will be incomplete for SPA pages — a warning is surfaced
+// to the caller.  The fallback is NEVER silent: every branch logs clearly.
 
 import { NextRequest, NextResponse } from "next/server";
 import type { ApiResponse, SnapshotResult } from "@/types";
@@ -31,6 +31,23 @@ const STATIC_HEADERS = {
   "Accept-Language": "en-US,en;q=0.9",
   "Cache-Control": "no-cache",
 };
+
+// Detect the runtime environment once at module load — avoids re-checking
+// process.env inside every request.
+const isServerless =
+  !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+
+const isContainer =
+  !isServerless &&
+  (!!process.env.PLAYWRIGHT_BROWSERS_PATH || // set in Dockerfile
+    !!process.env.RAILWAY_ENVIRONMENT ||      // Railway injects this
+    !!process.env.CODESPACE_NAME);            // GitHub Codespaces injects this
+
+const runtimeLabel = isServerless
+  ? "serverless"
+  : isContainer
+    ? "container"
+    : "local";
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   let body: { url?: string; timeout?: number; usePlainFetch?: boolean };
@@ -52,24 +69,48 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // ── Attempt 1: Playwright ─────────────────────────────────────────────────
+  // ── Attempt 1: Playwright (full JS rendering) ─────────────────────────────
   if (!usePlainFetch) {
-    const playwrightResult = await captureWithPlaywright(url, timeout);
-    if (playwrightResult.type === "success") {
+    const result = await captureWithPlaywright(url, timeout);
+
+    if (result.type === "success") {
       return NextResponse.json<ApiResponse<SnapshotResult>>({
         success: true,
-        data: playwrightResult.snapshot,
+        data: result.snapshot,
       });
     }
-    // If Playwright is not installed we fall through silently.
-    // Any other Playwright error (navigation failure, bot block, etc.)
-    // we also fall through to try static fetch, but preserve the error message.
-    if (playwrightResult.type === "error") {
-      console.warn("[Snapshot] Playwright capture failed:", playwrightResult.error);
+
+    // "unavailable" means the playwright package itself couldn't be imported.
+    // In container/serverless environments this is a hard misconfiguration.
+    if (result.type === "unavailable") {
+      if (isContainer) {
+        console.error(
+          `[Snapshot][${runtimeLabel}] CRITICAL: playwright package not found. ` +
+            "Ensure the Dockerfile copies playwright into node_modules and " +
+            "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright is set. Falling back to static-fetch.",
+        );
+      } else {
+        console.warn(
+          `[Snapshot][${runtimeLabel}] playwright not installed — falling back to static-fetch. ` +
+            "Run: npx playwright install chromium",
+        );
+      }
+    }
+
+    // "error" means playwright launched but navigation/render failed.
+    if (result.type === "error") {
+      console.error(
+        `[Snapshot][${runtimeLabel}] Playwright capture failed for ${url}: ` +
+          `${result.error} — falling back to static-fetch.`,
+      );
     }
   }
 
-  // ── Attempt 2: Static server-side fetch ──────────────────────────────────
+  // ── Attempt 2: Static server-side fetch (pre-JS HTML) ────────────────────
+  console.info(
+    `[Snapshot][${runtimeLabel}] Using static-fetch for ${url}. ` +
+      "XPath accuracy will be reduced on SPA pages.",
+  );
   return captureWithStaticFetch(url, timeout);
 }
 
@@ -82,17 +123,31 @@ type PlaywrightOutcome =
   | { type: "unavailable" }
   | { type: "error"; error: string };
 
+// Chromium launch flags that work correctly in headless Linux containers.
+// These are applied in both the container path AND the local path so behaviour
+// is consistent across environments.
+const CHROMIUM_ARGS = [
+  "--no-sandbox",                          // required when running as root or in containers
+  "--disable-setuid-sandbox",              // companion to --no-sandbox
+  "--disable-dev-shm-usage",              // avoid /dev/shm crashes (default 64 MB in Docker)
+  "--disable-gpu",                         // no GPU in headless containers
+  "--disable-blink-features=AutomationControlled", // reduce bot-detection fingerprint
+  "--no-first-run",
+  "--no-default-browser-check",
+  "--disable-extensions",
+];
+
 async function captureWithPlaywright(
   url: string,
   timeout: number,
 ): Promise<PlaywrightOutcome> {
-  // On Vercel/Lambda use @sparticuz/chromium (serverless-optimised ~40MB binary).
-  // Locally use the full playwright package with its own Chromium installation.
-  const isServerless = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
-
   let browser: import("playwright-core").Browser;
 
+  // ── Path A: Serverless (Vercel / AWS Lambda) ──────────────────────────────
+  // Full Chromium can't run in a serverless function — use the serverless-
+  // optimised @sparticuz/chromium binary instead.
   if (isServerless) {
+    console.info(`[Snapshot][serverless] Launching @sparticuz/chromium for ${url}`);
     let chromiumLib: typeof import("@sparticuz/chromium");
     let playwrightCore: typeof import("playwright-core");
     try {
@@ -100,43 +155,57 @@ async function captureWithPlaywright(
         import("@sparticuz/chromium"),
         import("playwright-core"),
       ]);
-    } catch {
+    } catch (err) {
+      console.error("[Snapshot][serverless] Failed to import @sparticuz/chromium:", err);
       return { type: "unavailable" };
     }
     try {
+      const executablePath = await chromiumLib.default.executablePath();
+      console.info(`[Snapshot][serverless] Chromium executable: ${executablePath}`);
       browser = await playwrightCore.chromium.launch({
         args: chromiumLib.default.args,
-        executablePath: await chromiumLib.default.executablePath(),
+        executablePath,
         headless: true,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { type: "error", error: msg };
     }
+
+  // ── Path B: Container / local (Docker, Railway, Codespaces, local dev) ────
+  // Use the full playwright package; it reads PLAYWRIGHT_BROWSERS_PATH to
+  // locate the pre-installed Chromium.
   } else {
+    const browsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH ?? "(auto-detect)";
+    console.info(
+      `[Snapshot][${runtimeLabel}] Launching playwright Chromium for ${url} ` +
+        `(PLAYWRIGHT_BROWSERS_PATH=${browsersPath})`,
+    );
     let playwrightChromium: (typeof import("playwright"))["chromium"];
     try {
       ({ chromium: playwrightChromium } = await import("playwright"));
-    } catch {
-      // playwright not installed locally — expected in some environments
+    } catch (err) {
+      console.error(
+        `[Snapshot][${runtimeLabel}] Failed to import playwright:`,
+        err,
+      );
       return { type: "unavailable" };
     }
     try {
       browser = await playwrightChromium.launch({
         headless: true,
-        args: [
-          "--no-sandbox",
-          "--disable-setuid-sandbox",
-          "--disable-dev-shm-usage",
-          "--disable-blink-features=AutomationControlled",
-        ],
+        args: CHROMIUM_ARGS,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[Snapshot][${runtimeLabel}] chromium.launch() failed: ${msg}`,
+      );
       return { type: "error", error: msg };
     }
   }
 
+  // ── Shared browser session ─────────────────────────────────────────────────
   try {
     const context = await browser.newContext({
       userAgent:
@@ -145,24 +214,23 @@ async function captureWithPlaywright(
       extraHTTPHeaders: { "Accept-Language": "en-US,en;q=0.9" },
     });
 
-    // Remove the navigator.webdriver flag that banks use for bot detection
+    // Remove the navigator.webdriver flag used for bot detection.
     await context.addInitScript(() => {
       Object.defineProperty(navigator, "webdriver", { get: () => undefined });
     });
 
     const page = await context.newPage();
 
-    // Navigate and wait for the network to go idle (all XHR/fetch requests settled)
-    await page.goto(url, {
-      waitUntil: "networkidle",
-      timeout,
-    });
+    // Step 1: Navigate and wait for network idle.
+    // networkidle = no network requests for 500 ms → SPA data loads are done.
+    await page.goto(url, { waitUntil: "networkidle", timeout });
 
-    // Give the JS framework time to hydrate after network idle
-    // (React/Angular often do a final render pass after data loads)
+    // Step 2: Give frameworks a hydration window after network idle.
+    // React/Angular/Vue often do a synchronous render pass after data loads.
     await page.waitForTimeout(1500);
 
-    // If there's no form yet, try waiting for one to appear (up to 5s extra)
+    // Step 3: Wait for the login form to appear (up to 5 s extra).
+    // Some banks lazy-load the form after the initial render.
     const formExists = await page
       .locator("form")
       .first()
@@ -171,7 +239,8 @@ async function captureWithPlaywright(
       .catch(() => false);
 
     if (!formExists) {
-      // Try waiting for any password input — definitive login-form indicator
+      // Step 4: No <form> found — wait for a password input as a last resort.
+      // Some shadow-DOM pages render inputs outside a <form> element.
       await page
         .locator("input[type='password']")
         .first()
@@ -179,10 +248,11 @@ async function captureWithPlaywright(
         .catch(() => {});
     }
 
-    // Serialize the fully rendered DOM — this is what DevTools sees
+    // Serialize the fully rendered DOM — identical to what DevTools shows.
     const htmlContent = await page.content();
 
-    // Capture MHTML via Chrome DevTools Protocol for archival
+    // Capture MHTML via CDP for archival / offline replay.
+    // CDP is available in Chromium; may not be present on all configurations.
     let mhtmlContent: string | undefined;
     try {
       const cdp = await context.newCDPSession(page);
@@ -191,13 +261,20 @@ async function captureWithPlaywright(
       });
       mhtmlContent = data;
     } catch {
-      // CDP snapshot is optional — not all browser configurations support it
+      // MHTML is optional — proceed without it.
     }
 
+    // Always close the browser, even if page.content() threw.
     await browser.close();
 
-    // Run SPA detection even on Playwright output for diagnostic purposes
     const spa = detectSpaShell(htmlContent);
+    console.info(
+      `[Snapshot][${runtimeLabel}] Captured ${url} — ` +
+        `${htmlContent.length} bytes, ` +
+        `spa=${spa.isSpaShell}, ` +
+        `formCount=${spa.formCount}, ` +
+        `mhtml=${!!mhtmlContent}`,
+    );
 
     const snapshot: SnapshotResult = {
       url,
@@ -219,7 +296,7 @@ async function captureWithPlaywright(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Static fetch fallback (server-side, no CORS)
+// Static fetch fallback — server-side HTTP, no CORS restriction
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function captureWithStaticFetch(
@@ -247,7 +324,7 @@ async function captureWithStaticFetch(
           success: false,
           error:
             `Server returned HTTP ${response.status}. ` +
-            `This may be an authentication wall, bot protection, or incorrect URL. ` +
+            `This may be an authentication wall or bot-protection. ` +
             `Save the page as MHTML from Chrome (Ctrl+S → Webpage, MHTML) and upload it.`,
         },
         { status: 502 },
@@ -263,7 +340,7 @@ async function captureWithStaticFetch(
       return NextResponse.json<ApiResponse<never>>(
         {
           success: false,
-          error: `Unexpected content type: "${contentType}". Expected HTML.`,
+          error: `Unexpected content-type: "${contentType}". Expected HTML.`,
         },
         { status: 502 },
       );
@@ -277,13 +354,12 @@ async function captureWithStaticFetch(
           success: false,
           error:
             "Response too short — likely an anti-bot challenge or empty redirect. " +
-            "Upload an MHTML file or install Playwright for reliable capture.",
+            "Upload an MHTML file saved from Chrome for accurate analysis.",
         },
         { status: 502 },
       );
     }
 
-    // Detect SPA shell — warn the user that XPath results may be unreliable
     const spa = detectSpaShell(htmlContent);
 
     const snapshot: SnapshotResult = {
@@ -297,8 +373,6 @@ async function captureWithStaticFetch(
     };
 
     if (spa.isSpaShell) {
-      // Return success but include the SPA warning in the response
-      // The UI will display the warning and lower-confidence results
       return NextResponse.json<ApiResponse<SnapshotResult & { spaWarning: string }>>({
         success: true,
         data: {
@@ -323,13 +397,12 @@ async function captureWithStaticFetch(
       msg.toLowerCase().includes("getaddrinfo");
 
     const friendly = isTimeout
-      ? `Request timed out. The site may block automated access. ` +
-        `Upload an MHTML snapshot for reliable analysis.`
+      ? "Request timed out. The site may block automated access. " +
+        "Upload an MHTML snapshot for reliable analysis."
       : isDns
-        ? `Could not resolve hostname — check the URL.`
+        ? "Could not resolve hostname — check the URL."
         : `Fetch failed: ${msg}. ` +
-          `For JavaScript-rendered banking portals, save the page as MHTML from Chrome ` +
-          `(Ctrl+S → Webpage, MHTML) and upload it.`;
+          "Save the page as MHTML from Chrome (Ctrl+S → Webpage, MHTML) and upload it.";
 
     return NextResponse.json<ApiResponse<never>>(
       { success: false, error: friendly },

@@ -1,0 +1,22 @@
+# Railway deployment configuration.
+# Railway auto-detects this file and uses it to override defaults.
+# Full reference: https://docs.railway.com/reference/config-as-code
+
+[build]
+# Use the Dockerfile in the repo root instead of Nixpacks.
+builder       = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# The standalone server.js is the entry point (CMD in Dockerfile also sets this,
+# but being explicit here avoids any Railway override issues).
+startCommand = "node server.js"
+
+# Railway polls this path to decide whether the deployment is healthy.
+# Must return HTTP 200 for the deployment to be considered live.
+healthcheckPath    = "/api/health"
+healthcheckTimeout = 30           # seconds to wait for a 200 response
+
+# Restart on crash — Playwright occasionally dies on bot-protected sites.
+restartPolicyType       = "on_failure"
+restartPolicyMaxRetries = 3
