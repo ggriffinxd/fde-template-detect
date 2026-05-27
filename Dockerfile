@@ -12,7 +12,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ─── Stage 1: Install dependencies ───────────────────────────────────────────
-FROM mcr.microsoft.com/playwright:v1.55.0-noble AS deps
+FROM mcr.microsoft.com/playwright:v1.60.0-noble AS deps
 WORKDIR /app
 
 # Copy package manifests first — Docker caches this layer until they change.
@@ -21,7 +21,7 @@ COPY package.json package-lock.json* ./
 RUN npm ci
 
 # ─── Stage 2: Build Next.js (standalone output) ───────────────────────────────
-FROM mcr.microsoft.com/playwright:v1.55.0-noble AS builder
+FROM mcr.microsoft.com/playwright:v1.60.0-noble AS builder
 WORKDIR /app
 
 # Disable telemetry collection during build.
@@ -42,7 +42,7 @@ COPY . .
 RUN npm run build
 
 # ─── Stage 3: Production runner ───────────────────────────────────────────────
-FROM mcr.microsoft.com/playwright:v1.55.0-noble AS runner
+FROM mcr.microsoft.com/playwright:v1.60.0-noble AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
