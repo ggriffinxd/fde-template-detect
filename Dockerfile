@@ -56,29 +56,22 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
-# Non-root user — principle of least privilege.
-# Chromium still runs correctly with --no-sandbox when non-root in a container.
-RUN groupadd --system --gid 1001 nodejs \
- && useradd  --system --uid 1001 --gid nodejs nextjs
-
 # ── Copy Next.js standalone build ─────────────────────────────────────────────
 # `output: 'standalone'` produces a self-contained server in .next/standalone/.
 # This directory already contains its own minimal node_modules subtree.
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder /app/.next/standalone ./
 
 # Static assets and public directory must be copied separately — they are not
 # embedded in the standalone bundle.
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
 
 # ── Copy browser-automation packages ──────────────────────────────────────────
 # The standalone bundler only includes packages that Next.js statically traces.
 # Dynamic imports (playwright, playwright-core) are NOT traced, so we must
 # copy them manually into the standalone node_modules directory.
-COPY --from=deps --chown=nextjs:nodejs /app/node_modules/playwright      ./node_modules/playwright
-COPY --from=deps --chown=nextjs:nodejs /app/node_modules/playwright-core  ./node_modules/playwright-core
-
-USER nextjs
+COPY --from=deps /app/node_modules/playwright      ./node_modules/playwright
+COPY --from=deps /app/node_modules/playwright-core  ./node_modules/playwright-core
 
 EXPOSE 3000
 

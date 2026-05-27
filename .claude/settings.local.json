@@ -6,7 +6,8 @@
       "Bash(curl -s \"https://raw.githubusercontent.com/ggriffinxd/fde-template-detect/main/src/app/api/snapshot/route.ts\")",
       "Bash(curl -s \"https://raw.githubusercontent.com/ggriffinxd/fde-template-detect/main/src/services/snapshot.service.ts\")",
       "Bash(curl -s \"https://raw.githubusercontent.com/ggriffinxd/fde-template-detect/main/src/services/verification.service.ts\")",
-      "Bash(curl -s \"https://api.github.com/repos/ggriffinxd/fde-template-detect/git/trees/main?recursive=1\")"
+      "Bash(curl -s \"https://api.github.com/repos/ggriffinxd/fde-template-detect/git/trees/main?recursive=1\")",
+      "Bash(npx playwright *)"
     ]
   }
 }
